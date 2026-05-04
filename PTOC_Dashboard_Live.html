@@ -454,7 +454,7 @@ table tr.total td.label { font-family: 'Manrope', sans-serif; }
 <!-- TABS -->
 <nav class="tabs">
   <div class="tab active" data-view="today"><span class="tab-num">01</span><span>Today</span></div>
-  <div class="tab" data-view="mtd"><span class="tab-num">02</span><span>Month-to-Date</span></div>
+  <div class="tab" data-view="mtd"><span class="tab-num">02</span><span>Month View</span></div>
   <div class="tab" data-view="clinic"><span class="tab-num">03</span><span>Clinic Drill-Down</span></div>
   <div class="tab" data-view="setup"><span class="tab-num">04</span><span>Setup &amp; Connection</span></div>
 </nav>
@@ -559,9 +559,14 @@ table tr.total td.label { font-family: 'Manrope', sans-serif; }
 
 <!-- ============ MTD VIEW ============ -->
 <section class="view" id="view-mtd">
+  <div class="filter-row">
+    <span class="lbl">Month</span>
+    <select id="month-mtd"></select>
+  </div>
+
   <div class="kpi-row">
     <div class="kpi big">
-      <div class="label">Target % (MTD)</div>
+      <div class="label">Target %</div>
       <div class="value tabular" id="m-target-pct">—</div>
       <div class="sub" id="m-target-sub">—</div>
     </div>
@@ -576,7 +581,7 @@ table tr.total td.label { font-family: 'Manrope', sans-serif; }
       <div class="sub muted">delivered</div>
     </div>
     <div class="kpi">
-      <div class="label">Network Utilization (MTD)</div>
+      <div class="label">Network Utilization</div>
       <div class="value tabular" id="m-util">—</div>
       <div class="sub muted">Σ FUs ÷ Σ Capacity</div>
     </div>
@@ -642,7 +647,9 @@ table tr.total td.label { font-family: 'Manrope', sans-serif; }
 <!-- ============ CLINIC DRILL VIEW ============ -->
 <section class="view" id="view-clinic">
   <div class="filter-row">
-    <span class="lbl">Clinic</span>
+    <span class="lbl">Month</span>
+    <select id="month-clinic"></select>
+    <span class="lbl" style="margin-left:16px;">Clinic</span>
     <select id="d-clinic"></select>
   </div>
 
@@ -825,6 +832,68 @@ function populateDateSelector() {
   );
   el.value = datesWithActuals[datesWithActuals.length - 1] || DATA.dates[DATA.dates.length-1];
 }
+
+/* ============ MONTH SELECTOR (synced across MTD & Clinic) ============ */
+let SELECTED_MONTH = null;  // 'YYYY-MM'
+
+function getAvailableMonths() {
+  const set = new Set();
+  DATA.records.forEach(r => set.add(r.date.substr(0,7)));
+  return Array.from(set).sort();
+}
+function monthLabel(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return months[m-1] + ' ' + y;
+}
+function populateMonthSelectors() {
+  const months = getAvailableMonths();
+  if (!months.length) return;
+
+  // Default to most recent month with at least one actual record
+  if (!SELECTED_MONTH || !months.includes(SELECTED_MONTH)) {
+    const monthsWithActuals = months.filter(ym =>
+      DATA.records.some(r => r.date.startsWith(ym) && r.actual_visits != null)
+    );
+    SELECTED_MONTH = monthsWithActuals.length
+      ? monthsWithActuals[monthsWithActuals.length - 1]
+      : months[months.length - 1];
+  }
+
+  ['month-mtd','month-clinic'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const cur = el.value;
+    el.innerHTML = '';
+    months.forEach(ym => {
+      const o = document.createElement('option');
+      o.value = ym; o.textContent = monthLabel(ym);
+      el.appendChild(o);
+    });
+    el.value = cur && months.includes(cur) ? cur : SELECTED_MONTH;
+  });
+}
+
+function setSelectedMonth(ym) {
+  SELECTED_MONTH = ym;
+  // Sync both selectors
+  const mMtd = document.getElementById('month-mtd');
+  const mClinic = document.getElementById('month-clinic');
+  if (mMtd) mMtd.value = ym;
+  if (mClinic) mClinic.value = ym;
+  // Update period label in topbar
+  document.getElementById('period-label').textContent = monthLabel(ym);
+  // Re-render whichever view we're on
+  if (CURRENT_VIEW === 'mtd') renderMTD();
+  else if (CURRENT_VIEW === 'clinic') renderClinicDrill();
+}
+
+// Returns a filtered records array based on SELECTED_MONTH
+function recordsInSelectedMonth() {
+  if (!SELECTED_MONTH) return DATA.records;
+  return DATA.records.filter(r => r.date.startsWith(SELECTED_MONTH));
+}
+
 
 /* ============ AGGREGATION HELPERS ============ */
 // Consolidated utilization (Σ FUs / Σ Capacity)
@@ -1016,7 +1085,7 @@ function renderTodayTable(rows, search) {
 /* ============ MTD VIEW ============ */
 function renderMTD() {
   const clinicFilter = document.getElementById('clinic-filter').value;
-  let rows = DATA.records;
+  let rows = recordsInSelectedMonth();
   if (clinicFilter) rows = rows.filter(r => r.clinic === clinicFilter);
 
   const target = rows.reduce((s,r) => s + (r.target_visits||0), 0);
@@ -1040,7 +1109,8 @@ function renderMTD() {
 
 function renderDayStrip(rows) {
   const dailyMap = {};
-  DATA.dates.forEach(d => { dailyMap[d] = { date:d, target:0, actual:0, hasAct:false, day:'' }; });
+  const datesInMonth = DATA.dates.filter(d => !SELECTED_MONTH || d.startsWith(SELECTED_MONTH));
+  datesInMonth.forEach(d => { dailyMap[d] = { date:d, target:0, actual:0, hasAct:false, day:'' }; });
   rows.forEach(r => {
     const d = dailyMap[r.date]; if (!d) return;
     d.target += r.target_visits||0;
@@ -1073,7 +1143,8 @@ let chartMRV=null;
 function renderMTDRoleVarChart(rows) {
   // Daily variance per role
   const dailyMap = {};
-  DATA.dates.forEach(d => { dailyMap[d] = { date:d, var_pt:0, var_pta:0, var_aide:0, var_fd:0 }; });
+  const datesInMonth = DATA.dates.filter(d => !SELECTED_MONTH || d.startsWith(SELECTED_MONTH));
+  datesInMonth.forEach(d => { dailyMap[d] = { date:d, var_pt:0, var_pta:0, var_aide:0, var_fd:0 }; });
   rows.forEach(r => {
     const d = dailyMap[r.date]; if (!d) return;
     if (r.actual_visits != null) {
@@ -1209,7 +1280,7 @@ let chartDV=null, chartDU=null, chartDR=null;
 function renderClinicDrill() {
   const clinic = document.getElementById('d-clinic').value;
   if (!clinic) return;
-  const rows = DATA.records.filter(r => r.clinic === clinic);
+  const rows = recordsInSelectedMonth().filter(r => r.clinic === clinic);
 
   const target = rows.reduce((s,r)=>s+(r.target_visits||0),0);
   const withAct = rows.filter(r => r.actual_visits != null);
@@ -1397,14 +1468,24 @@ function switchView(name) {
   CURRENT_VIEW = name;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view===name));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-'+name));
-  const labels = { today:"Today's Status", mtd:'Month-to-Date', clinic:'Clinic Drill-Down', setup:'Setup & Connection' };
+  const labels = { today:"Today's Status", mtd:'Month View', clinic:'Clinic Drill-Down', setup:'Setup & Connection' };
   document.getElementById('view-label').textContent = labels[name] || '';
   document.getElementById('glossary-bar').style.display = name==='setup' ? 'none' : 'flex';
-  if (name==='today') renderToday();
-  else if (name==='mtd') renderMTD();
+  if (name==='today') {
+    document.getElementById('period-label').textContent = DATA.period_label || '';
+    renderToday();
+  }
+  else if (name==='mtd') {
+    if (SELECTED_MONTH) document.getElementById('period-label').textContent = monthLabel(SELECTED_MONTH);
+    renderMTD();
+  }
   else if (name==='clinic') {
     if (!document.getElementById('d-clinic').value) document.getElementById('d-clinic').value = DATA.clinics[0];
+    if (SELECTED_MONTH) document.getElementById('period-label').textContent = monthLabel(SELECTED_MONTH);
     renderClinicDrill();
+  }
+  else if (name==='setup') {
+    document.getElementById('period-label').textContent = DATA.period_label || '';
   }
 }
 
@@ -1418,6 +1499,8 @@ document.getElementById('clinic-filter').addEventListener('change', () => {
 document.getElementById('t-search').addEventListener('input', renderToday);
 document.getElementById('m-search').addEventListener('input', renderMTD);
 document.getElementById('d-clinic').addEventListener('change', renderClinicDrill);
+document.getElementById('month-mtd').addEventListener('change', e => setSelectedMonth(e.target.value));
+document.getElementById('month-clinic').addEventListener('change', e => setSelectedMonth(e.target.value));
 document.getElementById('refresh-btn').addEventListener('click', () => {
   if (Object.values(SHEET_URLS).some(u => u)) loadLiveData();
   else { switchView(CURRENT_VIEW); }
@@ -1722,6 +1805,7 @@ async function loadLiveData() {
     // Re-populate selectors and re-render current view
     populateClinicSelectors();
     populateDateSelector();
+    populateMonthSelectors();
     switchView(CURRENT_VIEW);
 
     console.log(`[Live Load] ${records.length} records, ${clinics.length} clinics, ${dates.length} dates`);
@@ -1737,6 +1821,7 @@ async function loadLiveData() {
 /* ============ INIT ============ */
 populateClinicSelectors();
 populateDateSelector();
+populateMonthSelectors();
 renderToday();
 if (Object.values(SHEET_URLS).some(u => u)) loadLiveData();
 </script>
