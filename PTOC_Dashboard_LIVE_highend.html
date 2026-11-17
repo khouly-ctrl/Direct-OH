@@ -3311,6 +3311,29 @@ function closeFullScreen() {
 
 // Defensive event wiring — null-safe
 /* v23: HIGH-END FINANCIAL MODULE */
+// v24.5: robust parser for finance values. Strips $, spaces, commas BEFORE checking parens
+// so "$ (279.38)" → -279.38. Handles percentages, blanks, and em-dash.
+function _finNum(s) {
+  if (s == null) return 0;
+  var t = String(s).trim();
+  if (t === '' || t === '-' || t === '—' || t === 'N/A' || t === 'n/a') return 0;
+  // Strip currency, commas, spaces first
+  var hadPct = t.indexOf('%') >= 0;
+  t = t.replace(/[$,\s%]/g, '');
+  // Now check accounting parens
+  var neg = false;
+  if (t.charAt(0) === '(' && t.charAt(t.length-1) === ')') {
+    neg = true;
+    t = t.substring(1, t.length-1);
+  }
+  // Leading minus also means negative
+  if (t.charAt(0) === '-') { neg = true; t = t.substring(1); }
+  var n = parseFloat(t);
+  if (isNaN(n)) return 0;
+  if (hadPct) n = n / 100;
+  if (neg) n = -n;
+  return n;
+}
 function parseFinancialCSV(csvText) {
   if (!csvText) return null;
   const lines = csvText.trim().split(/\r?\n/);
@@ -3353,16 +3376,16 @@ function parseFinancialCSV(csvText) {
       clinic: clinic,
       date: dateStr,
       weekday: (cells[iWday] || '').trim(),
-      net_profit: parseFloat((cells[iNP]||'')) || 0,
-      avg_per_visit: parseFloat((cells[iAvg]||'')) || 0,
-      cont_margin: parseFloat((cells[iCM]||'')) || 0,
-      clinical_pct: parseFloat((cells[iClPct]||'')) || 0,
-      payroll_per_visit: parseFloat((cells[iPpv]||'')) || 0,
-      revenue_per_hour: parseFloat((cells[iRph]||'')) || 0,
-      clinical_margin: parseFloat((cells[iClm]||'')) || 0,
-      no_visits: parseFloat((cells[iNv]||'')) || 0,
-      sched_hours: parseFloat((cells[iSh]||'')) || 0,
-      ies_override: (iIE >= 0 && (cells[iIE]||'').trim() !== '') ? parseFloat(cells[iIE]) : null
+      net_profit: _finNum(cells[iNP]),
+      avg_per_visit: _finNum(cells[iAvg]),
+      cont_margin: _finNum(cells[iCM]),
+      clinical_pct: _finNum(cells[iClPct]),
+      payroll_per_visit: _finNum(cells[iPpv]),
+      revenue_per_hour: _finNum(cells[iRph]),
+      clinical_margin: _finNum(cells[iClm]),
+      no_visits: _finNum(cells[iNv]),
+      sched_hours: _finNum(cells[iSh]),
+      ies_override: (iIE >= 0 && (cells[iIE]||'').trim() !== '' && (cells[iIE]||'').trim() !== '-') ? _finNum(cells[iIE]) : null
     });
   }
   return out;
