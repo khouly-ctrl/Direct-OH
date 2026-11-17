@@ -1581,7 +1581,7 @@ var SHEET_URLS = {
   ref_original: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQQhXwnH47OhAO5ylf-hDKqa20rM_Dcxv38C0WS1jSmNBFmuuePuzzguQnImTl52bQ2Pc18aQG-_sAo/pub?gid=1071201354&single=true&output=csv',
   ref_vfd:      'https://docs.google.com/spreadsheets/d/e/2PACX-1vQQhXwnH47OhAO5ylf-hDKqa20rM_Dcxv38C0WS1jSmNBFmuuePuzzguQnImTl52bQ2Pc18aQG-_sAo/pub?gid=862208184&single=true&output=csv',
   // v23: High-end Financial sheet — publish the tab as CSV and paste the URL here to override embedded sample data
-  highend_financial: '',
+  highend_financial: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQQhXwnH47OhAO5ylf-hDKqa20rM_Dcxv38C0WS1jSmNBFmuuePuzzguQnImTl52bQ2Pc18aQG-_sAo/pub?gid=1792367292&single=true&output=csv',
 };
 
 // v22 (Nov 2026): High-end M/W/F model for 5 clinics; v24 rate card
@@ -3328,7 +3328,14 @@ function parseFinancialCSV(csvText) {
   const iClm = headers.indexOf('Clinical Margin');
   const iNv = headers.indexOf('No. Visits');
   const iSh = headers.indexOf('Sched Hours');
-  const iIE = headers.indexOf('IEs');  // v24: optional IE override
+  // v24.3: flexible IE override column detection — case/space-insensitive + common variants
+  let iIE = -1;
+  const _ieAliases = ['ies', 'ie', 'ies override', 'ie override', 'adjusted ie', 'adjusted ies', 'true ie', 'true ies', 'ies adjusted', 'ie count'];
+  for (let hIdx = 0; hIdx < headers.length; hIdx++) {
+    const normHead = (headers[hIdx] || '').trim().toLowerCase();
+    if (_ieAliases.indexOf(normHead) >= 0) { iIE = hIdx; break; }
+  }
+  if (iIE >= 0) console.log('[HighEndFinancial] IE override column:', headers[iIE], '(index', iIE + ')');
   if (iClinic < 0 || iDate < 0) {
     console.warn('parseFinancialCSV: missing Clinic/Date', headers);
     return null;
