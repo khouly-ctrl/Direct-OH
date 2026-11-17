@@ -4905,16 +4905,22 @@ async function loadLiveData() {
       // Consultation deliberately ignored
       const actualVisits = fu + ie;
       if (actualVisits <= 0) return;
-      // v24: on high-end M/W/F, IE count may be overridden by column M "IEs" in Finance sheet
+      // v24.2: on high-end M/W/F, column M "IEs" overrides the IE count AND the difference
+      //         (original IE − override IE) is added to the FU count (reclassified visits
+      //         still count as visits, just not as IE × 2).
       const _rc_act = rateCard(clinic, dateStr);
       let _ieForUtil = ie;
+      let _fuForUtil = fu;
       if (_rc_act.isHighEnd) {
         const _ovKey = clinic + '|' + dateStr;
         if (FIN_IE_OVERRIDE[_ovKey] != null) {
-          _ieForUtil = FIN_IE_OVERRIDE[_ovKey];
+          const _overrideIE = FIN_IE_OVERRIDE[_ovKey];
+          const _diff = ie - _overrideIE;
+          _ieForUtil = _overrideIE;
+          _fuForUtil = fu + _diff;
         }
       }
-      const actualFUs = fu + _rc_act.ieMult * _ieForUtil;
+      const actualFUs = _fuForUtil + _rc_act.ieMult * _ieForUtil;
       const actualPT  = num(r['PT Total Hours']);
       const actualPTA = num(r['PTA Total Hours']);
       const aideCol = num(r['Aide Total Hours']);
@@ -4947,7 +4953,7 @@ async function loadLiveData() {
 
       actualByKey[dateStr + '|' + clinic] = {
         actual_visits: actualVisits, actual_fus: actualFUs,
-        actual_ie: ie, actual_fu: fu,
+        actual_ie: _ieForUtil, actual_fu: _fuForUtil,
         actual_pt:   hasOps ? actualPT   : null,
         actual_pta:  hasOps ? actualPTA  : null,
         actual_aide: hasOps ? actualAide : null,
